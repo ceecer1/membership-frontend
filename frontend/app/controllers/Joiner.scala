@@ -7,19 +7,17 @@ import com.gu.membership.stripe.Stripe
 import com.gu.membership.stripe.Stripe.Serializer._
 import com.netaporter.uri.dsl._
 import configuration.{Config, CopyConfig}
-import controllers.Testing.AuthorisedTester
 import forms.MemberForm.{JoinForm, friendJoinForm, paidMemberJoinForm, staffJoinForm}
 import model.RichEvent._
 import model._
 import play.api.libs.concurrent.Execution.Implicits.defaultContext
 import play.api.libs.json.Json
 import play.api.mvc._
-import services._
-import services.GuardianContentService
+import services.{GuardianContentService, _}
 import services.EventbriteService._
+import tracking.{ActivityTracking, EventActivity, EventData, MemberData}
 
 import scala.concurrent.Future
-import tracking.{EventData, EventActivity, MemberData, ActivityTracking}
 
 trait Joiner extends Controller with ActivityTracking {
   val JoinReferrer = "join-referrer"
@@ -47,15 +45,13 @@ trait Joiner extends Controller with ActivityTracking {
       Some(CopyConfig.copyDescriptionChooseTier)
     )
 
-    val contentReferer = request.headers.get(REFERER)
+    val contentRefererOpt = request.headers.get(REFERER)
     val contentAccessOpt = request.getQueryString("membershipAccess").map(MembershipAccess)
+    val returnUri = eventOpt.fold(contentRefererOpt.map(_.toString))(_.contentOpt.map(_.webUrl)).map { uri =>
+      routes.Login.chooseSigninOrRegister(uri).toString
+    }.getOrElse(Config.idWebAppSigninUrl(""))
 
-    val sectionTitle = contentAccessOpt.map {
-      case i if i.isMembersOnly => "You need to be a Guardian member to access this content"
-      case i if i.isPaidMembersOnly => "You need to be a Partner or a Patron to access this content"
-    }.getOrElse(eventOpt.fold("Choose a membership tier to continue with your booking")(_.metadata.chooseTier.sectionTitle))
-
-    Ok(views.html.joiner.tierChooser(pageInfo, sectionTitle, eventOpt, contentAccessOpt)).withSession(request.session.copy(data = request.session.data ++ contentReferer.map(JoinReferrer -> _)))
+    Ok(views.html.joiner.tierChooser(pageInfo, eventOpt, contentAccessOpt, returnUri)).withSession(request.session.copy(data = request.session.data ++ contentRefererOpt.map(JoinReferrer -> _)))
   }
 
   def staff = PermanentStaffNonMemberAction.async { implicit request =>
