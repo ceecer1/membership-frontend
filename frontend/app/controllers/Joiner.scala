@@ -155,15 +155,17 @@ trait Joiner extends Controller with ActivityTracking {
       }
   }
 
-  def returnDestinationFor(request: AnyMemberTierRequest[_]): Future[Option[Destination]] =
-     Future.sequence(Seq(contentDestinationFor(request), eventDestinationFor(request))).map(_.flatten.headOption)
+  def returnDestinationFor(request: AnyMemberTierRequest[_]): Future[Option[Destination]] = {
+    val destinations = Seq(contentDestinationFor(request), eventDestinationFor(request))
+    Future.sequence(destinations.map(_.recover { case _ => None })).map(_.flatten.headOption)
+  }
 
   def contentDestinationFor(request: AnyMemberTierRequest[_]): Future[Option[ContentDestination]] = {
     request.session.get(JoinReferrer).map { referer =>
       if(referer.host.contains(Config.guardianHost)) {
         contentApiService.contentItemQuery(referer.path).map { resp =>
           resp.content.map(MembersOnlyContent).map(ContentDestination(_))
-        } recover { case _ => None }
+        }
       } else {
         Future.successful(None)
       }
